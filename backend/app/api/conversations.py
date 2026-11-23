@@ -1,7 +1,10 @@
 """Conversation routes."""
 
+import sqlite3
+
 from fastapi import APIRouter, HTTPException
 
+from app.agent.memory import ExtractionError, extract_memories, memory_prompt
 from app.agent.ollama import (
     OllamaError,
     OllamaModelNotInstalledError,
@@ -10,10 +13,12 @@ from app.agent.ollama import (
 )
 from app.database.sqlite import (
     ConversationNotFoundError,
+    add_memories,
     create_conversation,
     delete_conversation,
     get_conversation,
     list_conversations,
+    list_memories,
     list_messages,
     save_exchange,
 )
@@ -25,6 +30,7 @@ from app.models.conversations import (
     MessageExchange,
     MessageRecord,
 )
+from app.models.memories import MemoryConflict, MemoryRecord as StoredMemory
 
 router = APIRouter()
 
@@ -69,14 +75,19 @@ async def create_message_route(
     body: MessageCreate,
 ) -> MessageExchange:
     _require_conversation(conversation_id)
+    memories = list_memories()
     history = [
         {"role": message["role"], "content": message["content"]}
         for message in list_messages(conversation_id)
     ]
     history.append({"role": "user", "content": body.message})
+    prompt = memory_prompt(memories)
+    model_messages = (
+        [{"role": "system", "content": prompt}, *history] if prompt else history
+    )
 
     try:
-        reply = await chat(history)
+        reply = await chat(model_messages)
     except OllamaUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except OllamaModelNotInstalledError as exc:
@@ -93,8 +104,25 @@ async def create_message_route(
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
+    memories_saved: list[StoredMemory] = []
+    memory_conflicts: list[MemoryConflict] = []
+    try:
+        extraction = await extract_memories(body.message, memories)
+        memories_saved = [
+            StoredMemory.model_validate(row)
+            for row in add_memories(extraction.add, conversation_id)
+        ]
+        memory_conflicts = [
+            MemoryConflict.model_validate(conflict) for conflict in extraction.conflicts
+        ]
+    except (OllamaError, ExtractionError, sqlite3.Error):
+        memories_saved = []
+        memory_conflicts = []
+
     return MessageExchange(
         conversation_id=conversation_id,
         user_message=MessageRecord.model_validate(user_message),
         assistant_message=MessageRecord.model_validate(assistant_message),
+        memories_saved=memories_saved,
+        memory_conflicts=memory_conflicts,
     )

@@ -20,13 +20,16 @@ class OllamaModelNotInstalledError(OllamaError):
     """The configured model is not installed in Ollama."""
 
 
-async def chat(messages: list[dict[str, str]]) -> str:
-    """Send conversation messages to Ollama and return the assistant text."""
+async def chat(messages: list[dict[str, str]], *, json_format: bool = False) -> str:
+    """Send conversation messages to Ollama and return the assistant text.
+
+    json_format constrains the reply to JSON. The normal chat call leaves it off.
+    """
     if not messages:
         raise OllamaError("No messages to send")
 
     url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    payload = {
+    payload: dict[str, object] = {
         "model": OLLAMA_MODEL,
         "messages": [
             {"role": message["role"], "content": message["content"]}
@@ -34,6 +37,8 @@ async def chat(messages: list[dict[str, str]]) -> str:
         ],
         "stream": False,
     }
+    if json_format:
+        payload["format"] = "json"
     timeout = httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
 
     try:

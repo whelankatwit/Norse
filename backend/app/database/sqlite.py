@@ -29,11 +29,27 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages (conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    source_conversation_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
 class ConversationNotFoundError(Exception):
     """The conversation id is not in the database."""
+
+
+class MemoryNotFoundError(Exception):
+    """The memory id is not in the database."""
+
+
+class DuplicateMemoryError(Exception):
+    """A memory with the same fact is already stored."""
 
 
 def _utc_now() -> str:
@@ -183,3 +199,124 @@ def save_exchange(
             (assistant_id,),
         ).fetchone()
         return dict(user_row), dict(assistant_row)
+
+
+def normalize_fact(content: str) -> str:
+    """Compare facts without surrounding space, repeated spaces, or letter case."""
+    return " ".join(content.split()).casefold()
+
+
+def _memory_content_exists(
+    connection: sqlite3.Connection,
+    content: str,
+    exclude_id: str | None = None,
+) -> bool:
+    rows = connection.execute("SELECT id, content FROM memories").fetchall()
+    key = normalize_fact(content)
+    return any(
+        normalize_fact(row["content"]) == key and row["id"] != exclude_id for row in rows
+    )
+
+
+def list_memories() -> list[dict[str, str | None]]:
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, content, source_conversation_id, created_at, updated_at
+            FROM memories
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def _insert_memory(
+    connection: sqlite3.Connection,
+    content: str,
+    source_conversation_id: str | None,
+) -> dict[str, str | None]:
+    memory_id = _new_id()
+    timestamp = _utc_now()
+    connection.execute(
+        """
+        INSERT INTO memories (
+            id, content, source_conversation_id, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (memory_id, content, source_conversation_id, timestamp, timestamp),
+    )
+    row = connection.execute(
+        """
+        SELECT id, content, source_conversation_id, created_at, updated_at
+        FROM memories
+        WHERE id = ?
+        """,
+        (memory_id,),
+    ).fetchone()
+    return dict(row)
+
+
+def create_memory(content: str) -> dict[str, str | None]:
+    cleaned = " ".join(content.split())
+    with connect() as connection:
+        if _memory_content_exists(connection, cleaned):
+            raise DuplicateMemoryError(cleaned)
+        return _insert_memory(connection, cleaned, None)
+
+
+def add_memories(
+    contents: list[str],
+    source_conversation_id: str | None,
+) -> list[dict[str, str | None]]:
+    """Insert facts that are not already stored. Existing rows stay unchanged."""
+    if not contents:
+        return []
+    with connect() as connection:
+        inserted: list[dict[str, str | None]] = []
+        for content in contents:
+            cleaned = " ".join(content.split())
+            if not cleaned or _memory_content_exists(connection, cleaned):
+                continue
+            inserted.append(_insert_memory(connection, cleaned, source_conversation_id))
+        return inserted
+
+
+def update_memory(memory_id: str, content: str) -> dict[str, str | None]:
+    cleaned = " ".join(content.split())
+    timestamp = _utc_now()
+    with connect() as connection:
+        existing = connection.execute(
+            "SELECT id FROM memories WHERE id = ?",
+            (memory_id,),
+        ).fetchone()
+        if existing is None:
+            raise MemoryNotFoundError(memory_id)
+        if _memory_content_exists(connection, cleaned, exclude_id=memory_id):
+            raise DuplicateMemoryError(cleaned)
+        connection.execute(
+            """
+            UPDATE memories
+            SET content = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (cleaned, timestamp, memory_id),
+        )
+        row = connection.execute(
+            """
+            SELECT id, content, source_conversation_id, created_at, updated_at
+            FROM memories
+            WHERE id = ?
+            """,
+            (memory_id,),
+        ).fetchone()
+        return dict(row)
+
+
+def delete_memory(memory_id: str) -> bool:
+    with connect() as connection:
+        cursor = connection.execute(
+            "DELETE FROM memories WHERE id = ?",
+            (memory_id,),
+        )
+        return cursor.rowcount == 1

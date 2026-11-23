@@ -1,6 +1,6 @@
 # Norse
 
-Norse is a personal AI assistant that runs on this computer. Model inference stays local through Ollama. The backend stores conversations in SQLite and sends that history to Ollama when a conversation continues. Long-term memory, tools, and the React frontend come later.
+Norse is a personal AI assistant that runs on this computer. Model inference stays local through Ollama. The backend stores conversations and durable facts about you in SQLite. A continued conversation receives its history and those facts. Tools and the React frontend come later.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health). A healthy ser
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/chat -ContentType "application/json" -Body '{"message":"Say hello in one sentence."}'
 ```
 
-A successful response looks like `{"message":"..."}`. `POST /chat` does not save the exchange. Interactive docs are at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+A successful response looks like `{"message":"..."}`. `POST /chat` does not save the exchange and does not read or write long-term memories. Interactive docs are at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
 ## Conversations
 
@@ -44,7 +44,18 @@ Conversations and their messages are stored in the SQLite file from `NORSE_DATAB
 - `GET /conversations` lists conversations, most recently updated first.
 - `GET /conversations/{conversation_id}` returns the conversation and its messages, oldest first.
 - `DELETE /conversations/{conversation_id}` deletes the conversation and its messages.
-- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history plus the new message to Ollama, then stores both turns.
+- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript.
+
+## Memories
+
+Durable facts live in the `memories` table, separate from conversation messages. Deleting a conversation leaves those facts in place.
+
+- `GET /memories` lists facts, most recently updated first.
+- `POST /memories` with `{"content":"..."}` stores a fact directly.
+- `PATCH /memories/{memory_id}` with `{"content":"..."}` edits one fact.
+- `DELETE /memories/{memory_id}` removes one fact.
+
+A conflicting statement does not change the stored fact. The message response includes it in `memory_conflicts` so it can be edited with `PATCH`.
 
 ## Configuration
 
