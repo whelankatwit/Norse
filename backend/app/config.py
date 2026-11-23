@@ -10,7 +10,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 OLLAMA_BASE_URL = os.environ.get("NORSE_OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("NORSE_OLLAMA_MODEL", "llama3.2")
+OLLAMA_MODEL = os.environ.get("NORSE_OLLAMA_MODEL", "llama3.2:3b")
 DATABASE_PATH = Path(
     os.environ.get("NORSE_DATABASE_PATH", str(REPO_ROOT / "data" / "norse.db"))
 )
