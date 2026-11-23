@@ -1,17 +1,17 @@
 # Norse
 
-Norse is a personal AI assistant that runs on this computer. Model inference stays local through Ollama. The backend stores conversations and durable facts about you in SQLite. A continued conversation receives its history and those facts. Tools and the React frontend come later.
+Norse is a personal AI assistant that runs on this computer. Model inference stays local through Ollama. The backend stores conversations and durable facts about you in SQLite. A continued conversation receives its history and those facts. The React app is the interface for those conversations and facts.
 
 ## Prerequisites
 
 - Python 3.13
-- Node.js 22, for the frontend in a later milestone
+- Node.js 22, for the React frontend
 - [Ollama](https://ollama.com/), with the `llama3.2:3b` model, for `POST /chat`
 
 ## Layout
 
 - `backend/` — FastAPI application
-- `frontend/` — reserved for the React app
+- `frontend/` — React app
 - `data/` — local runtime files, including the SQLite database
 
 ## Run the API
@@ -25,6 +25,17 @@ python -m venv .venv
 ```
 
 Open [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health). A healthy server returns `{"status":"ok"}`.
+
+## Run the frontend
+
+Start the API first. From `frontend/`:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The dev server proxies `/conversations`, `/memories`, and `/health` to the API on port 8000. The page lists conversations, continues the selected one, and edits durable facts. `POST /chat` is not used by the page.
 
 ## Chat
 
