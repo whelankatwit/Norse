@@ -1,0 +1,100 @@
+"""Conversation routes."""
+
+from fastapi import APIRouter, HTTPException
+
+from app.agent.ollama import (
+    OllamaError,
+    OllamaModelNotInstalledError,
+    OllamaUnavailableError,
+    chat,
+)
+from app.database.sqlite import (
+    ConversationNotFoundError,
+    create_conversation,
+    delete_conversation,
+    get_conversation,
+    list_conversations,
+    list_messages,
+    save_exchange,
+)
+from app.models.conversations import (
+    ConversationCreate,
+    ConversationDetail,
+    ConversationSummary,
+    MessageCreate,
+    MessageExchange,
+    MessageRecord,
+)
+
+router = APIRouter()
+
+
+def _require_conversation(conversation_id: str) -> dict[str, str]:
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@router.post("/conversations", response_model=ConversationSummary)
+def create_conversation_route(body: ConversationCreate | None = None) -> ConversationSummary:
+    title = body.title if body is not None else None
+    return ConversationSummary.model_validate(create_conversation(title))
+
+
+@router.get("/conversations", response_model=list[ConversationSummary])
+def list_conversations_route() -> list[ConversationSummary]:
+    return [ConversationSummary.model_validate(row) for row in list_conversations()]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
+def get_conversation_route(conversation_id: str) -> ConversationDetail:
+    conversation = _require_conversation(conversation_id)
+    messages = [MessageRecord.model_validate(row) for row in list_messages(conversation_id)]
+    return ConversationDetail(**conversation, messages=messages)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation_route(conversation_id: str) -> None:
+    if not delete_conversation(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=MessageExchange,
+)
+async def create_message_route(
+    conversation_id: str,
+    body: MessageCreate,
+) -> MessageExchange:
+    _require_conversation(conversation_id)
+    history = [
+        {"role": message["role"], "content": message["content"]}
+        for message in list_messages(conversation_id)
+    ]
+    history.append({"role": "user", "content": body.message})
+
+    try:
+        reply = await chat(history)
+    except OllamaUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except OllamaModelNotInstalledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except OllamaError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    try:
+        user_message, assistant_message = save_exchange(
+            conversation_id,
+            body.message,
+            reply,
+        )
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+
+    return MessageExchange(
+        conversation_id=conversation_id,
+        user_message=MessageRecord.model_validate(user_message),
+        assistant_message=MessageRecord.model_validate(assistant_message),
+    )

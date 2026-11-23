@@ -32,7 +32,7 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 async def chat_message(body: ChatRequest) -> ChatResponse:
     try:
-        reply = await chat(body.message)
+        reply = await chat([{"role": "user", "content": body.message}])
     except OllamaUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except OllamaModelNotInstalledError as exc:
