@@ -29,6 +29,8 @@ from app.models.conversations import (
     MessageCreate,
     MessageExchange,
     MessageRecord,
+    ToolRequest,
+    ToolResult,
     ToolUse,
 )
 from app.models.memories import MemoryConflict, MemoryRecord as StoredMemory
@@ -87,7 +89,7 @@ async def create_message_route(
     model_messages = [{"role": "system", "content": guidance}, *history]
 
     try:
-        reply, tool_uses = await run_tools(model_messages)
+        turn = await run_tools(model_messages)
     except OllamaUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except OllamaModelNotInstalledError as exc:
@@ -99,7 +101,7 @@ async def create_message_route(
         user_message, assistant_message = save_exchange(
             conversation_id,
             body.message,
-            reply,
+            turn.reply,
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
@@ -125,5 +127,7 @@ async def create_message_route(
         assistant_message=MessageRecord.model_validate(assistant_message),
         memories_saved=memories_saved,
         memory_conflicts=memory_conflicts,
-        tool_uses=[ToolUse.model_validate(use) for use in tool_uses],
+        tool_uses=[ToolUse.model_validate(use) for use in turn.tool_uses],
+        tool_results=[ToolResult.model_validate(result) for result in turn.tool_results],
+        tool_requests=[ToolRequest.model_validate(request) for request in turn.tool_requests],
     )

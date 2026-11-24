@@ -55,7 +55,7 @@ Conversations and their messages are stored in the SQLite file from `NORSE_DATAB
 - `GET /conversations` lists conversations, most recently updated first.
 - `GET /conversations/{conversation_id}` returns the conversation and its messages, oldest first.
 - `DELETE /conversations/{conversation_id}` deletes the conversation and its messages.
-- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript. The request may run read-only workspace tools first. `tool_uses` lists the tools that ran. Tool messages are not stored.
+- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript. The request may run read-only workspace tools first. `tool_uses` lists the tools that ran, and `tool_results` contains the handler output from the tools that succeeded. An explicit request to use, call, or run a tool is kept only when that tool succeeds. Tool messages are not stored.
 
 ## Memories
 

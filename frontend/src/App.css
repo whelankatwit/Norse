@@ -188,6 +188,20 @@
   font-size: 0.9rem;
 }
 
+.tool-result {
+  margin: 0.45rem 0 0;
+  padding: 0.65rem 0.75rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: #121815;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .error {
   color: var(--danger);
 }

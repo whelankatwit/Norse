@@ -176,6 +176,60 @@ def execute(
     return result, True
 
 
+def result_text(result: dict) -> str:
+    """Plain text of one successful handler result.
+
+    The text is copied from the handler. It is not model output and it is not HTML.
+    """
+    if result.get("ok") is not True:
+        return ""
+    blocks: list[str] = []
+    output = result.get("output")
+    if isinstance(output, str) and output:
+        blocks.append(output.rstrip())
+    content = result.get("content")
+    if isinstance(content, str) and content:
+        path = result.get("path")
+        body = content.rstrip()
+        blocks.append(f"{path}\n{body}" if isinstance(path, str) and path else body)
+    workspaces = result.get("workspaces")
+    if isinstance(workspaces, list):
+        rows = []
+        for item in workspaces:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                continue
+            name = item.get("name")
+            rows.append(f"{item['id']} {name}" if isinstance(name, str) and name else item["id"])
+        if rows:
+            blocks.append("\n".join(rows))
+    entries = result.get("entries")
+    if isinstance(entries, list):
+        lines = []
+        path = result.get("path")
+        if isinstance(path, str) and path:
+            lines.append(path)
+        for item in entries:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                kind = item.get("kind") if isinstance(item.get("kind"), str) else "file"
+                lines.append(f"{kind} {item['name']}")
+        if lines:
+            blocks.append("\n".join(lines))
+    matches = result.get("matches")
+    if isinstance(matches, list):
+        lines = [item for item in matches if isinstance(item, str)]
+        if lines:
+            blocks.append("\n".join(lines))
+    notes = []
+    if result.get("truncated") is True:
+        notes.append("Output was truncated.")
+    if result.get("sensitive_omitted") is True:
+        notes.append("Sensitive file content was omitted.")
+    text = "\n".join(blocks)
+    if notes:
+        text = f"{text}\n" + "\n".join(notes) if text else "\n".join(notes)
+    return text
+
+
 def report(name: str, arguments: dict, result: dict) -> dict[str, object]:
     """Describe one invocation without absolute paths or sensitive arguments."""
     reported: dict[str, object] = {"name": name, "ok": result.get("ok") is True}

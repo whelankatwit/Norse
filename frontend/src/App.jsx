@@ -220,10 +220,18 @@ export default function App() {
       const saved = exchange.memories_saved ?? []
       const conflicts = exchange.memory_conflicts ?? []
       const tools = exchange.tool_uses ?? []
-      if (saved.length > 0 || conflicts.length > 0 || tools.length > 0) {
+      const requests = exchange.tool_requests ?? []
+      const results = exchange.tool_results ?? []
+      if (
+        saved.length > 0 ||
+        conflicts.length > 0 ||
+        tools.length > 0 ||
+        requests.length > 0 ||
+        results.length > 0
+      ) {
         setNotesByMessageId((current) => ({
           ...current,
-          [exchange.assistant_message.id]: { saved, conflicts, tools },
+          [exchange.assistant_message.id]: { saved, conflicts, tools, requests, results },
         }))
       }
       if (saved.length > 0) {

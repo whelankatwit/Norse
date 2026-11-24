@@ -6,6 +6,16 @@ function toolLine(tool) {
   return `${status} ${tool.name}`
 }
 
+function requestLine(request) {
+  if (request.status === 'succeeded') {
+    return `Used ${request.name}`
+  }
+  if (request.status === 'failed') {
+    return `Failed ${request.name}`
+  }
+  return `${request.name} was not invoked`
+}
+
 export default function MessageList({ messages, waiting, notesByMessageId = {} }) {
   if (messages.length === 0 && !waiting) {
     return <p className="empty">No messages yet.</p>
@@ -29,10 +39,22 @@ export default function MessageList({ messages, waiting, notesByMessageId = {} }
                 Kept “{conflict.existing}”. New statement “{conflict.stated}” was not saved.
               </p>
             ))}
-            {(note?.tools ?? []).map((tool, index) => (
-              <p key={`${tool.name}:${tool.path ?? ''}:${index}`} className="memory-note">
-                {toolLine(tool)}
+            {(note?.requests ?? []).map((request) => (
+              <p key={request.name} className="memory-note">
+                {requestLine(request)}
               </p>
+            ))}
+            {(note?.tools ?? [])
+              .filter((tool) => !(note.requests ?? []).some((request) => request.name === tool.name))
+              .map((tool, index) => (
+                <p key={`${tool.name}:${tool.path ?? ''}:${index}`} className="memory-note">
+                  {toolLine(tool)}
+                </p>
+              ))}
+            {(note?.results ?? []).map((result, index) => (
+              <pre key={`${result.name}:${index}`} className="tool-result">
+                {`${result.name}\n${result.output}`}
+              </pre>
             ))}
           </li>
         )

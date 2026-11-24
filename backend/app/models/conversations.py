@@ -54,6 +54,16 @@ class ToolUse(BaseModel):
     path: str | None = None
 
 
+class ToolResult(BaseModel):
+    name: str
+    output: str
+
+
+class ToolRequest(BaseModel):
+    name: str
+    status: str
+
+
 class MessageExchange(BaseModel):
     conversation_id: str
     user_message: MessageRecord
@@ -61,3 +71,5 @@ class MessageExchange(BaseModel):
     memories_saved: list[MemoryRecord] = Field(default_factory=list)
     memory_conflicts: list[MemoryConflict] = Field(default_factory=list)
     tool_uses: list[ToolUse] = Field(default_factory=list)
+    tool_results: list[ToolResult] = Field(default_factory=list)
+    tool_requests: list[ToolRequest] = Field(default_factory=list)
