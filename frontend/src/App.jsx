@@ -16,6 +16,15 @@ import Composer from './components/Composer.jsx'
 import ConversationList from './components/ConversationList.jsx'
 import MemoryPanel from './components/MemoryPanel.jsx'
 import MessageList from './components/MessageList.jsx'
+import {
+  appendExchange,
+  beginExecution,
+  beginRecovery,
+  createSubmission,
+  notesForExchange,
+  recoveryDelay,
+  reduceSubmission,
+} from './submission.js'
 import './App.css'
 
 const STORAGE_KEY = 'norse.selectedConversationId'
@@ -24,7 +33,7 @@ export default function App() {
   const [conversations, setConversations] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [messagesById, setMessagesById] = useState({})
-  const [pendingById, setPendingById] = useState({})
+  const [submissionsById, setSubmissionsById] = useState({})
   const [sendingIds, setSendingIds] = useState({})
   const [errorsById, setErrorsById] = useState({})
   const [notesByMessageId, setNotesByMessageId] = useState({})
@@ -33,7 +42,18 @@ export default function App() {
   const openTokens = useRef({})
   const removedIds = useRef(new Set())
   const sendingRef = useRef(new Set())
+  const submissionsRef = useRef({})
+  const timersRef = useRef({})
   const transcriptRef = useRef(null)
+
+  useEffect(() => {
+    const timers = timersRef.current
+    return () => {
+      for (const timer of Object.values(timers)) {
+        clearTimeout(timer)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -138,12 +158,10 @@ export default function App() {
       await deleteConversation(conversationId)
       removedIds.current.add(conversationId)
       openTokens.current[conversationId] = (openTokens.current[conversationId] ?? 0) + 1
+      clearTimer(conversationId)
+      rememberSubmission(conversationId, null)
+      setBusy(conversationId, false)
       setMessagesById((current) => {
-        const next = { ...current }
-        delete next[conversationId]
-        return next
-      })
-      setPendingById((current) => {
         const next = { ...current }
         delete next[conversationId]
         return next
@@ -185,98 +203,181 @@ export default function App() {
     setMemories((current) => current.filter((memory) => memory.id !== memoryId))
   }
 
-  async function handleSend(text) {
-    const conversationId = selectedId
-    if (!conversationId || sendingRef.current.has(conversationId)) {
-      return
+  function clearTimer(conversationId) {
+    const timer = timersRef.current[conversationId]
+    if (timer) {
+      clearTimeout(timer)
+      delete timersRef.current[conversationId]
     }
+  }
 
-    sendingRef.current.add(conversationId)
-    setSendingIds((current) => ({ ...current, [conversationId]: true }))
-    setPendingById((current) => ({ ...current, [conversationId]: text }))
-    setErrorsById((current) => {
+  function rememberSubmission(conversationId, submission) {
+    if (submission) {
+      submissionsRef.current[conversationId] = submission
+    } else {
+      delete submissionsRef.current[conversationId]
+    }
+    setSubmissionsById({ ...submissionsRef.current })
+  }
+
+  function setBusy(conversationId, busy) {
+    if (busy) {
+      sendingRef.current.add(conversationId)
+    } else {
+      sendingRef.current.delete(conversationId)
+    }
+    setSendingIds((current) => {
       const next = { ...current }
-      delete next[conversationId]
+      if (busy) {
+        next[conversationId] = true
+      } else {
+        delete next[conversationId]
+      }
       return next
     })
+  }
 
-    try {
-      const exchange = await sendMessage(conversationId, text)
-      if (removedIds.current.has(conversationId)) {
+  function schedulePoll(conversationId, attempt, delay) {
+    clearTimer(conversationId)
+    timersRef.current[conversationId] = setTimeout(() => {
+      delete timersRef.current[conversationId]
+      const submission = submissionsRef.current[conversationId]
+      if (
+        removedIds.current.has(conversationId) ||
+        !submission ||
+        submission.attempt !== attempt
+      ) {
         return
       }
-      setMessagesById((current) => {
-        const local = current[conversationId] ?? []
-        const ids = new Set(local.map((message) => message.id))
-        const next = [...local]
-        if (!ids.has(exchange.user_message.id)) {
-          next.push(exchange.user_message)
-        }
-        if (!ids.has(exchange.assistant_message.id)) {
-          next.push(exchange.assistant_message)
-        }
-        return { ...current, [conversationId]: next }
-      })
-      const saved = exchange.memories_saved ?? []
-      const conflicts = exchange.memory_conflicts ?? []
-      const tools = exchange.tool_uses ?? []
-      const requests = exchange.tool_requests ?? []
-      const results = exchange.tool_results ?? []
-      if (
-        saved.length > 0 ||
-        conflicts.length > 0 ||
-        tools.length > 0 ||
-        requests.length > 0 ||
-        results.length > 0
-      ) {
-        setNotesByMessageId((current) => ({
-          ...current,
-          [exchange.assistant_message.id]: { saved, conflicts, tools, requests, results },
-        }))
-      }
-      if (saved.length > 0) {
-        try {
-          await refreshMemories()
-        } catch (requestError) {
-          setErrorsById((current) => ({
-            ...current,
-            memories: requestError.message,
-          }))
-        }
-      }
-      rememberConversations(await listConversations())
+      void execute(conversationId, attempt, true)
+    }, delay)
+  }
+
+  function settle(conversationId, attempt, outcome, mode) {
+    if (removedIds.current.has(conversationId)) {
+      clearTimer(conversationId)
+      rememberSubmission(conversationId, null)
+      setBusy(conversationId, false)
+      return
+    }
+    const current = submissionsRef.current[conversationId]
+    if (!current || current.attempt !== attempt) {
+      return
+    }
+    const result = reduceSubmission(current, outcome, mode)
+    if (result.action === 'done') {
+      clearTimer(conversationId)
+      rememberSubmission(conversationId, null)
+      setBusy(conversationId, false)
+      void acceptExchange(conversationId, result.exchange)
+      return
+    }
+    rememberSubmission(conversationId, result.submission)
+    if (result.action === 'poll') {
+      schedulePoll(conversationId, attempt, result.delay)
+      return
+    }
+    clearTimer(conversationId)
+    setBusy(conversationId, false)
+  }
+
+  async function execute(conversationId, attempt, recover) {
+    const submission = submissionsRef.current[conversationId]
+    if (!submission || submission.attempt !== attempt || removedIds.current.has(conversationId)) {
+      return
+    }
+    setBusy(conversationId, true)
+    try {
+      const exchange = await sendMessage(conversationId, submission.text, submission.key, { recover })
+      settle(conversationId, attempt, { type: 'success', exchange }, recover ? 'recover' : 'execute')
     } catch (requestError) {
-      if (!removedIds.current.has(conversationId)) {
+      settle(
+        conversationId,
+        attempt,
+        { type: 'error', code: requestError.code || '', message: requestError.message },
+        recover ? 'recover' : 'execute',
+      )
+    }
+  }
+
+  async function acceptExchange(conversationId, exchange) {
+    if (removedIds.current.has(conversationId)) {
+      return
+    }
+    setMessagesById((current) => ({
+      ...current,
+      [conversationId]: appendExchange(current[conversationId] ?? [], exchange),
+    }))
+    const notes = notesForExchange(exchange)
+    if (notes) {
+      setNotesByMessageId((current) => ({
+        ...current,
+        [exchange.assistant_message.id]: notes,
+      }))
+    }
+    if ((exchange.memories_saved ?? []).length > 0) {
+      try {
+        await refreshMemories()
+      } catch (requestError) {
         setErrorsById((current) => ({
           ...current,
-          [conversationId]: requestError.message,
+          memories: requestError.message,
         }))
       }
-    } finally {
-      sendingRef.current.delete(conversationId)
-      setSendingIds((current) => {
-        const next = { ...current }
-        delete next[conversationId]
-        return next
-      })
-      setPendingById((current) => {
-        const next = { ...current }
-        delete next[conversationId]
-        return next
-      })
     }
+    try {
+      rememberConversations(await listConversations())
+    } catch (requestError) {
+      setErrorsById((current) => ({ ...current, '': requestError.message }))
+    }
+  }
+
+  async function handleSend(text) {
+    const conversationId = selectedId
+    if (
+      !conversationId ||
+      sendingRef.current.has(conversationId) ||
+      submissionsRef.current[conversationId]
+    ) {
+      return
+    }
+    const submission = createSubmission(text, crypto.randomUUID())
+    rememberSubmission(conversationId, submission)
+    await execute(conversationId, submission.attempt, false)
+  }
+
+  function handleRetry(conversationId) {
+    const current = submissionsRef.current[conversationId]
+    if (!current || current.phase !== 'failed' || sendingRef.current.has(conversationId)) {
+      return
+    }
+    const submission = beginExecution(current)
+    rememberSubmission(conversationId, submission)
+    void execute(conversationId, submission.attempt, false)
+  }
+
+  function handleCheckStatus(conversationId) {
+    const current = submissionsRef.current[conversationId]
+    if (!current || current.phase !== 'waiting' || sendingRef.current.has(conversationId)) {
+      return
+    }
+    const submission = beginRecovery(current)
+    rememberSubmission(conversationId, submission)
+    setBusy(conversationId, true)
+    schedulePoll(conversationId, submission.attempt, recoveryDelay(submission))
   }
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
   const history = selectedId ? (messagesById[selectedId] ?? []) : []
-  const pendingText = selectedId ? pendingById[selectedId] : ''
-  const shown = pendingText
+  const submission = selectedId ? submissionsById[selectedId] : null
+  const pendingText = submission?.text ?? ''
+  const shown = submission
     ? [
         ...history,
         {
-          id: `pending-${selectedId}`,
+          id: `pending-${submission.key}`,
           role: 'user',
-          content: pendingText,
+          content: submission.text,
         },
       ]
     : history
@@ -286,6 +387,15 @@ export default function App() {
   const noteMark = savedNote
     ? [savedNote.saved?.length ?? 0, savedNote.conflicts?.length ?? 0, savedNote.tools?.length ?? 0].join(':')
     : ''
+  const showWaiting = submission?.phase === 'sending'
+  const notice = submission?.phase === 'waiting' ? submission.status : ''
+  const statusText =
+    submission && submission.phase !== 'sending' && submission.phase !== 'waiting'
+      ? submission.status
+      : ''
+  const sendingSelected = Boolean(selectedId && sendingIds[selectedId])
+  const showRetry = submission?.phase === 'failed'
+  const showCheck = submission?.phase === 'waiting' && !sendingSelected
 
   useLayoutEffect(() => {
     const transcript = transcriptRef.current
@@ -293,7 +403,7 @@ export default function App() {
       return
     }
     transcript.scrollTop = transcript.scrollHeight
-  }, [selectedId, shown.length, lastMessageId, pendingText, sendingIds[selectedId], noteMark])
+  }, [selectedId, shown.length, lastMessageId, pendingText, notice, sendingSelected, noteMark])
 
   return (
     <div className="shell">
@@ -327,14 +437,27 @@ export default function App() {
             <div className="transcript" ref={transcriptRef}>
               <MessageList
                 messages={shown}
-                waiting={Boolean(sendingIds[selectedId])}
+                waiting={showWaiting}
+                notice={notice}
                 notesByMessageId={notesByMessageId}
               />
             </div>
-            <Composer
-              disabled={Boolean(sendingIds[selectedId])}
-              onSend={handleSend}
-            />
+            {statusText ? <p className="error">{statusText}</p> : null}
+            {showRetry || showCheck ? (
+              <div className="submission-actions">
+                {showRetry ? (
+                  <button type="button" className="primary" onClick={() => handleRetry(selectedId)}>
+                    Retry
+                  </button>
+                ) : null}
+                {showCheck ? (
+                  <button type="button" onClick={() => handleCheckStatus(selectedId)}>
+                    Check status again
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <Composer disabled={Boolean(submission)} onSend={handleSend} />
           </>
         ) : (
           <p className="empty">Select a conversation or create one.</p>

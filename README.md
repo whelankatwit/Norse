@@ -35,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The dev server proxies `/conversations`, `/memories`, and `/health` to the API on port 8000. The page lists conversations, continues the selected one, and edits durable facts. A reply can show which read-only tools ran. Those lines stay on the page until it is reloaded. `POST /chat` is not used by the page.
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The dev server proxies `/conversations`, `/memories`, and `/health` to the API on port 8000. The page lists conversations, continues the selected one, and edits durable facts. A reply can show which read-only tools ran. Those lines stay on the page until it is reloaded. If a reply fails, the message stays on screen and Retry sends that same submission again. While a reply is still being generated, the page checks that submission without starting another model run. `POST /chat` is not used by the page.
 
 ## Chat
 
@@ -54,8 +54,10 @@ Conversations and their messages are stored in the SQLite file from `NORSE_DATAB
 - `POST /conversations` creates a conversation. The body may include `title`.
 - `GET /conversations` lists conversations, most recently updated first.
 - `GET /conversations/{conversation_id}` returns the conversation and its messages, oldest first.
-- `DELETE /conversations/{conversation_id}` deletes the conversation and its messages.
-- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript. The request may run read-only workspace tools first. `tool_uses` lists the tools that ran, and `tool_results` contains the handler output from the tools that succeeded. An explicit request to use, call, or run a tool is kept only when that tool succeeds. Tool messages are not stored.
+- `DELETE /conversations/{conversation_id}` deletes the conversation, its messages, and its submission records.
+- `POST /conversations/{conversation_id}/messages` requires `message` and `idempotency_key`. It may include `recover`. The key belongs to that conversation. Norse stores a SHA-256 fingerprint of the message text. The same key and message return the saved exchange with `replayed` set to true, without calling Ollama again. A different message for that key returns 409 `idempotency_conflict`. A submission that is still pending returns 409 `request_in_progress`. `recover: true` only reports that state: it does not start the model, retry a failure, or take ownership. A failed submission returns 409 `request_failed` to a recovery request. An execution request can retry it.
+- The same request sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript. The request may run read-only workspace tools first. `tool_uses` lists the tools that ran, and `tool_results` contains the handler output from the tools that succeeded. An explicit request to use, call, or run a tool is kept only when that tool succeeds. Tool messages are not stored. If Ollama cannot answer, the response is an error object with a `code` such as `empty_reply`, `invalid_ollama_response`, or `ollama_http_error`, and the exchange is not saved.
+- An execution request can take over a pending submission once it is 15 minutes old. That can start another model call while the older request is still running. The older request cannot save its reply, mark the newer submission failed, or run memory extraction for an exchange it did not save.
 
 ## Memories
 
@@ -67,6 +69,8 @@ Durable facts live in the `memories` table, separate from conversation messages.
 - `DELETE /memories/{memory_id}` removes one fact.
 
 A conflicting statement does not change the stored fact. The message response includes it in `memory_conflicts` so it can be edited with `PATCH`.
+
+Memory extraction stays best-effort. If the API stops after the reply is saved and before extraction finishes, that extraction is not retried. The saved conversation is unchanged.
 
 ## Configuration
 

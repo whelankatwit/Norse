@@ -1,14 +1,9 @@
 """Chat route."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field, field_validator
 
-from app.agent.ollama import (
-    OllamaError,
-    OllamaModelNotInstalledError,
-    OllamaUnavailableError,
-    chat,
-)
+from app.agent.ollama import OllamaFailure, chat, failure_response
 
 router = APIRouter()
 
@@ -33,11 +28,7 @@ class ChatResponse(BaseModel):
 async def chat_message(body: ChatRequest) -> ChatResponse:
     try:
         reply = await chat([{"role": "user", "content": body.message}])
-    except OllamaUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except OllamaModelNotInstalledError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except OllamaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except OllamaFailure as exc:
+        raise failure_response(exc) from exc
 
     return ChatResponse(message=reply)

@@ -6,7 +6,7 @@ Tool messages stay in this temporary list. They are not written to SQLite.
 import json
 from dataclasses import dataclass, field
 
-from app.agent.ollama import OllamaError, complete
+from app.agent.ollama import OllamaError, OllamaFailure, complete, tool_calls_kind
 from app.tools.registry import definitions, execute, report, result_text
 from app.tools.requests import explicit_requests
 
@@ -49,7 +49,12 @@ async def run_tools(
         if not calls:
             reply = _text(message)
             if not reply:
-                raise OllamaError("Ollama returned an unexpected response")
+                raise OllamaFailure(
+                    "empty_reply",
+                    stage="tool_round",
+                    content_empty=True,
+                    tool_calls=tool_calls_kind(message),
+                )
             break
         room = MAX_CALLS - call_count
         if room <= 0:

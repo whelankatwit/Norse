@@ -16,8 +16,8 @@ function requestLine(request) {
   return `${request.name} was not invoked`
 }
 
-export default function MessageList({ messages, waiting, notesByMessageId = {} }) {
-  if (messages.length === 0 && !waiting) {
+export default function MessageList({ messages, waiting, notice = '', notesByMessageId = {} }) {
+  if (messages.length === 0 && !waiting && !notice) {
     return <p className="empty">No messages yet.</p>
   }
 
@@ -60,6 +60,7 @@ export default function MessageList({ messages, waiting, notesByMessageId = {} }
         )
       })}
       {waiting ? <li className="waiting">Waiting for a reply…</li> : null}
+      {notice ? <li className="waiting">{notice}</li> : null}
     </ol>
   )
 }

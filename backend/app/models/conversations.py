@@ -37,6 +37,8 @@ class ConversationDetail(ConversationSummary):
 
 class MessageCreate(BaseModel):
     message: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1, max_length=80)
+    recover: bool = False
 
     @field_validator("message")
     @classmethod
@@ -45,6 +47,13 @@ class MessageCreate(BaseModel):
         if not stripped:
             raise ValueError("message must not be blank")
         return stripped
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def key_has_no_whitespace(cls, value: str) -> str:
+        if any(character.isspace() for character in value):
+            raise ValueError("idempotency_key must not contain whitespace")
+        return value
 
 
 class ToolUse(BaseModel):
@@ -73,3 +82,4 @@ class MessageExchange(BaseModel):
     tool_uses: list[ToolUse] = Field(default_factory=list)
     tool_results: list[ToolResult] = Field(default_factory=list)
     tool_requests: list[ToolRequest] = Field(default_factory=list)
+    replayed: bool = False

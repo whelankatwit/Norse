@@ -21,9 +21,13 @@ export function deleteConversation(conversationId) {
   return request(`/conversations/${conversationId}`, { method: 'DELETE' })
 }
 
-export function sendMessage(conversationId, message) {
+export function sendMessage(conversationId, message, idempotencyKey, { recover = false } = {}) {
+  const body = { message, idempotency_key: idempotencyKey }
+  if (recover) {
+    body.recover = true
+  }
   return request(`/conversations/${conversationId}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(body),
   })
 }

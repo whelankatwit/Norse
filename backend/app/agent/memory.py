@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from app.agent.ollama import OllamaError, chat
+from app.agent.ollama import OllamaError, OllamaFailure, chat
 
 MAX_FACTS = 5
 MAX_FACT_LENGTH = 500
@@ -287,6 +287,7 @@ async def _prioritize(facts: list[str]) -> list[str]:
             }
         ],
         json_format=True,
+        stage="memory_extraction",
     )
     payload = _load_json_object(raw)
     keep = payload.get("keep")
@@ -318,10 +319,17 @@ async def extract_memories(
             }
         ],
         json_format=True,
+        stage="memory_extraction",
     )
     facts, conflicts = parse_extraction(raw, memories, user_message)
     try:
         facts = await _prioritize(facts)
-    except (OllamaError, ExtractionError):
+    except (OllamaError, ExtractionError) as exc:
+        if isinstance(exc, ExtractionError):
+            OllamaFailure(
+                "extraction_failed",
+                stage="memory_extraction",
+                error_type=type(exc).__name__,
+            )
         facts = []
     return ExtractionResult(add=facts, conflicts=conflicts)

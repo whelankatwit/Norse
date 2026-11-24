@@ -15,9 +15,14 @@ export async function request(path, options = {}) {
   if (!response.ok) {
     const detail = body?.detail
     const message =
-      typeof detail === 'string' ? detail : `Request failed (${response.status})`
+      typeof detail === 'string'
+        ? detail
+        : typeof detail?.message === 'string'
+          ? detail.message
+          : `Request failed (${response.status})`
     const error = new Error(message)
     error.status = response.status
+    error.code = typeof detail?.code === 'string' ? detail.code : ''
     throw error
   }
 
