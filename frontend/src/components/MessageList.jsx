@@ -1,3 +1,11 @@
+function toolLine(tool) {
+  const status = tool.ok ? 'Used' : 'Failed'
+  if (tool.workspace && tool.path) {
+    return `${status} ${tool.name}: ${tool.workspace}/${tool.path}`
+  }
+  return `${status} ${tool.name}`
+}
+
 export default function MessageList({ messages, waiting, notesByMessageId = {} }) {
   if (messages.length === 0 && !waiting) {
     return <p className="empty">No messages yet.</p>
@@ -19,6 +27,11 @@ export default function MessageList({ messages, waiting, notesByMessageId = {} }
             {note?.conflicts.map((conflict) => (
               <p key={`${conflict.memory_id}:${conflict.stated}`} className="memory-note">
                 Kept “{conflict.existing}”. New statement “{conflict.stated}” was not saved.
+              </p>
+            ))}
+            {(note?.tools ?? []).map((tool, index) => (
+              <p key={`${tool.name}:${tool.path ?? ''}:${index}`} className="memory-note">
+                {toolLine(tool)}
               </p>
             ))}
           </li>

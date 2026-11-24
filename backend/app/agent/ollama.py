@@ -23,20 +23,34 @@ class OllamaModelNotInstalledError(OllamaError):
 async def chat(messages: list[dict[str, str]], *, json_format: bool = False) -> str:
     """Send conversation messages to Ollama and return the assistant text.
 
-    json_format constrains the reply to JSON. The normal chat call leaves it off.
+    json_format constrains the reply to JSON. The normal chat call leaves it off
+    and does not offer tools.
     """
+    message = await complete(messages, json_format=json_format)
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise OllamaError("Ollama returned an unexpected response")
+    return content
+
+
+async def complete(
+    messages: list[dict],
+    *,
+    tools: list[dict] | None = None,
+    json_format: bool = False,
+) -> dict:
+    """Return Ollama's message, including tool_calls when the model requests tools."""
     if not messages:
         raise OllamaError("No messages to send")
 
     url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/chat"
     payload: dict[str, object] = {
         "model": OLLAMA_MODEL,
-        "messages": [
-            {"role": message["role"], "content": message["content"]}
-            for message in messages
-        ],
+        "messages": [_outgoing(message) for message in messages],
         "stream": False,
     }
+    if tools is not None:
+        payload["tools"] = tools
     if json_format:
         payload["format"] = "json"
     timeout = httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
@@ -56,11 +70,22 @@ async def chat(messages: list[dict[str, str]], *, json_format: bool = False) -> 
 
     try:
         response.raise_for_status()
-        content = response.json()["message"]["content"]
+        message = response.json()["message"]
     except (httpx.HTTPStatusError, ValueError, KeyError, TypeError) as exc:
         raise OllamaError("Ollama returned an unexpected response") from exc
 
-    if not isinstance(content, str) or not content.strip():
+    if not isinstance(message, dict):
         raise OllamaError("Ollama returned an unexpected response")
+    return message
 
-    return content
+
+def _outgoing(message: dict) -> dict:
+    payload: dict[str, object] = {
+        "role": message["role"],
+        "content": message.get("content") or "",
+    }
+    if message.get("tool_calls"):
+        payload["tool_calls"] = message["tool_calls"]
+    if message.get("tool_name"):
+        payload["tool_name"] = message["tool_name"]
+    return payload

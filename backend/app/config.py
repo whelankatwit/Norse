@@ -17,3 +17,5 @@ DATABASE_PATH = Path(
 
 API_HOST = os.environ.get("NORSE_API_HOST", "127.0.0.1")
 API_PORT = int(os.environ.get("NORSE_API_PORT", "8000"))
+# Semicolon-separated absolute directories on Windows. Empty approves nothing.
+WORKSPACES = os.environ.get("NORSE_WORKSPACES", "")

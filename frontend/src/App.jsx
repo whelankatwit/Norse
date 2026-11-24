@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   createConversation,
   deleteConversation,
@@ -33,6 +33,7 @@ export default function App() {
   const openTokens = useRef({})
   const removedIds = useRef(new Set())
   const sendingRef = useRef(new Set())
+  const transcriptRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -218,10 +219,11 @@ export default function App() {
       })
       const saved = exchange.memories_saved ?? []
       const conflicts = exchange.memory_conflicts ?? []
-      if (saved.length > 0 || conflicts.length > 0) {
+      const tools = exchange.tool_uses ?? []
+      if (saved.length > 0 || conflicts.length > 0 || tools.length > 0) {
         setNotesByMessageId((current) => ({
           ...current,
-          [exchange.assistant_message.id]: { saved, conflicts },
+          [exchange.assistant_message.id]: { saved, conflicts, tools },
         }))
       }
       if (saved.length > 0) {
@@ -271,6 +273,19 @@ export default function App() {
       ]
     : history
   const pageError = errorsById['']
+  const lastMessageId = shown.at(-1)?.id ?? ''
+  const savedNote = notesByMessageId[history.at(-1)?.id ?? '']
+  const noteMark = savedNote
+    ? [savedNote.saved?.length ?? 0, savedNote.conflicts?.length ?? 0, savedNote.tools?.length ?? 0].join(':')
+    : ''
+
+  useLayoutEffect(() => {
+    const transcript = transcriptRef.current
+    if (!transcript) {
+      return
+    }
+    transcript.scrollTop = transcript.scrollHeight
+  }, [selectedId, shown.length, lastMessageId, pendingText, sendingIds[selectedId], noteMark])
 
   return (
     <div className="shell">
@@ -301,7 +316,7 @@ export default function App() {
             {errorsById[selectedId] ? (
               <p className="error">{errorsById[selectedId]}</p>
             ) : null}
-            <div className="transcript">
+            <div className="transcript" ref={transcriptRef}>
               <MessageList
                 messages={shown}
                 waiting={Boolean(sendingIds[selectedId])}

@@ -47,9 +47,17 @@ class MessageCreate(BaseModel):
         return stripped
 
 
+class ToolUse(BaseModel):
+    name: str
+    ok: bool
+    workspace: str | None = None
+    path: str | None = None
+
+
 class MessageExchange(BaseModel):
     conversation_id: str
     user_message: MessageRecord
     assistant_message: MessageRecord
     memories_saved: list[MemoryRecord] = Field(default_factory=list)
     memory_conflicts: list[MemoryConflict] = Field(default_factory=list)
+    tool_uses: list[ToolUse] = Field(default_factory=list)

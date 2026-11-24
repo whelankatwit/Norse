@@ -35,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The dev server proxies `/conversations`, `/memories`, and `/health` to the API on port 8000. The page lists conversations, continues the selected one, and edits durable facts. `POST /chat` is not used by the page.
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The dev server proxies `/conversations`, `/memories`, and `/health` to the API on port 8000. The page lists conversations, continues the selected one, and edits durable facts. A reply can show which read-only tools ran. Those lines stay on the page until it is reloaded. `POST /chat` is not used by the page.
 
 ## Chat
 
@@ -55,7 +55,7 @@ Conversations and their messages are stored in the SQLite file from `NORSE_DATAB
 - `GET /conversations` lists conversations, most recently updated first.
 - `GET /conversations/{conversation_id}` returns the conversation and its messages, oldest first.
 - `DELETE /conversations/{conversation_id}` deletes the conversation and its messages.
-- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript.
+- `POST /conversations/{conversation_id}/messages` with `{"message":"..."}` sends the saved history and durable facts to Ollama, then stores both turns. Facts the user explicitly states may be added to long-term memory. The fact list itself is not stored in the transcript. The request may run read-only workspace tools first. `tool_uses` lists the tools that ran. Tool messages are not stored.
 
 ## Memories
 
@@ -79,3 +79,6 @@ A conflicting statement does not change the stored fact. The message response in
 | `NORSE_DATABASE_PATH` | `<repo>/data/norse.db` |
 | `NORSE_API_HOST` | `127.0.0.1` |
 | `NORSE_API_PORT` | `8000` |
+| `NORSE_WORKSPACES` | empty |
+
+`NORSE_WORKSPACES` is a list of absolute directories, separated by `;` on Windows. A directory is not approved until it is listed here. Conversation messages can use the read-only tools on these directories. `POST /chat` does not.

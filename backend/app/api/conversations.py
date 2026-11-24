@@ -4,12 +4,12 @@ import sqlite3
 
 from fastapi import APIRouter, HTTPException
 
+from app.agent.loop import TOOL_GUIDANCE, run_tools
 from app.agent.memory import ExtractionError, extract_memories, memory_prompt
 from app.agent.ollama import (
     OllamaError,
     OllamaModelNotInstalledError,
     OllamaUnavailableError,
-    chat,
 )
 from app.database.sqlite import (
     ConversationNotFoundError,
@@ -29,6 +29,7 @@ from app.models.conversations import (
     MessageCreate,
     MessageExchange,
     MessageRecord,
+    ToolUse,
 )
 from app.models.memories import MemoryConflict, MemoryRecord as StoredMemory
 
@@ -82,12 +83,11 @@ async def create_message_route(
     ]
     history.append({"role": "user", "content": body.message})
     prompt = memory_prompt(memories)
-    model_messages = (
-        [{"role": "system", "content": prompt}, *history] if prompt else history
-    )
+    guidance = "\n\n".join(part for part in (TOOL_GUIDANCE, prompt) if part)
+    model_messages = [{"role": "system", "content": guidance}, *history]
 
     try:
-        reply = await chat(model_messages)
+        reply, tool_uses = await run_tools(model_messages)
     except OllamaUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except OllamaModelNotInstalledError as exc:
@@ -125,4 +125,5 @@ async def create_message_route(
         assistant_message=MessageRecord.model_validate(assistant_message),
         memories_saved=memories_saved,
         memory_conflicts=memory_conflicts,
+        tool_uses=[ToolUse.model_validate(use) for use in tool_uses],
     )
